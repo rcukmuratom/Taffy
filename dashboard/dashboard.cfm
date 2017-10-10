@@ -181,11 +181,25 @@
 					<cfloop from="1" to="#arrayLen(application._taffy.uriMatchOrder)#" index="local.resource">
 						<cfset local.currentResource = application._taffy.endpoints[application._taffy.uriMatchOrder[local.resource]] />
 						<cfset local.resourceHTTPID = rereplace(local.currentResource.beanName & "_" & hash(local.currentResource.srcURI), "[^0-9a-zA-Z_]", "_", "all") />
+						<cfset local.md = getMetaData(application._taffy.factory.getBean(local.currentResource.beanName)) />
+						<cfif structKeyExists(local.md, "taffy_dashboard_hide") OR structKeyExists(local.md, "taffy:dashboard:hide")>
+							<cfscript>continue;</cfscript>
+						</cfif>
 						<div class="panel panel-default">
 							<div class="panel-heading">
 								<h4 class="panel-title">
 									<a href="###local.resourceHTTPID#" class="accordion-toggle" data-toggle="collapse" data-parent="##resourcesAccordion">
-										#local.currentResource.beanName#
+										<cfif structKeyExists(local.md, "taffy:dashboard:name")>
+											#local.md['taffy:dashboard:name']#
+										<cfelseif structKeyExists(local.md, "taffy_dashboard_name")>
+											#local.md['taffy_dashboard_name']#
+										<cfelseif structKeyExists(local.md, "taffy:docs:name")>
+											#local.md['taffy:docs:name']#
+										<cfelseif structKeyExists(local.md, "taffy_docs_name")>
+											#local.md['taffy_docs_name']#
+										<cfelse>
+											#local.currentResource.beanName#
+										</cfif>
 									</a>
 									<cfloop list="DELETE|warning,PATCH|warning,PUT|warning,POST|danger,GET|primary" index="local.verb">
 										<cfif structKeyExists(local.currentResource.methods, listFirst(local.verb,'|'))>
@@ -210,10 +224,19 @@
 														<option value="#local.verb#">#local.verb#</option>
 													</cfif>
 												</cfloop>
+												<cfif application._taffy.settings.allowCrossDomain NEQ 'false'>
+													<option value="OPTIONS">OPTIONS</option>
+												</cfif>
 											</select>
 											<input type="text" class="resourceUri form-control" value="#local.currentResource.srcUri#" onclick="this.select()" />
+											<div class="toggles">
+												<a class="expander" data-target="##qp_#local.resourceHTTPID#">+Query Params</a>
+												&nbsp;<a class="expander" data-target="##accept_#local.resourceHTTPID#">+Accept</a>
+												&nbsp;<a class="expander" data-target="##head_#local.resourceHTTPID#">+Headers</a>
+												&nbsp;<a class="expander" data-target="##auth_#local.resourceHTTPID#">+Basic Auth</a>
+											</div>
 
-											<div class="queryParams">
+											<div class="queryParams expandable" id="qp_#local.resourceHTTPID#">
 												<h4>Query String Parameters: <span class="text-muted">(optional)</span></h4>
 												<div class="qparam row form-group">
 													<div class="col-md-4">
@@ -229,14 +252,16 @@
 												</div>
 											</div>
 
-											<h4>Accept:</h4>
-											<select class="form-control input-sm reqFormat">
-												<cfloop list="#structKeyList(application._taffy.settings.mimeTypes)#" index="local.mime">
-													<option value="#local.mime#"
-														<cfif application._taffy.settings.defaultMime eq application._taffy.settings.mimeTypes[local.mime]>selected="selected"</cfif>
-													>#application._taffy.settings.mimeTypes[local.mime]#</option>
-												</cfloop>
-											</select>
+											<div class="expandable" id="accept_#local.resourceHTTPID#">
+												<h4>Accept:</h4>
+												<select class="form-control input-sm reqFormat">
+													<cfloop list="#structKeyList(application._taffy.settings.mimeTypes)#" index="local.mime">
+														<option value="#local.mime#"
+															<cfif application._taffy.settings.defaultMime eq application._taffy.settings.mimeTypes[local.mime]>selected="selected"</cfif>
+														>#application._taffy.settings.mimeTypes[local.mime]#</option>
+													</cfloop>
+												</select>
+											</div>
 
 											<cfif arrayLen(local.currentResource.tokens) gt 0>
 												<div class="reqTokens">
@@ -257,24 +282,26 @@
 												</div>
 											</cfif>
 
-											<div class="reqHeaders">
+											<div class="reqHeaders expandable" id="head_#local.resourceHTTPID#">
 												<h4>Request Headers:</h4>
 												<textarea
 													rows="#listLen(structKeyList(application._taffy.settings.dashboardHeaders, '|'), '|')+1#"
 													class="form-control input-sm requestHeaders"
+													placeholder="X-MY-HEADER: VALUE"
 													><cfloop list="#structKeyList(application._taffy.settings.dashboardHeaders, '|')#" delimiters="|" index="k">#k#: #application._taffy.settings.dashboardHeaders[k]##chr(13)##chr(10)#</cfloop></textarea>
 											</div>
 
-											<h4>Basic Auth:</h4>
-											<div class="basicAuth row">
-											  	<div class="col-md-6"><input type="text" name="username" class="form-control" placeholder="Username" value="" /></div>
-											  	<div class="col-md-6"><input type="password" name="password" class="form-control" placeholder="Password" value="" /></div>
+											<div class="expandable" id="auth_#local.resourceHTTPID#">
+												<h4>Basic Auth:</h4>
+												<div class="basicAuth row">
+													<div class="col-md-6"><input type="text" name="username" class="form-control" placeholder="Username" value="" /></div>
+													<div class="col-md-6"><input type="password" name="password" class="form-control" placeholder="Password" value="" /></div>
+												</div>
 											</div>
 
 											<div class="reqBody">
 												<h4>Request Body:</h4>
 												<textarea id="#local.resourceHTTPID#_RequestBody" class="form-control input-sm" rows="5"></textarea>
-												<cfset local.md = getMetaData(application._taffy.factory.getBean(local.currentResource.beanName)) />
 												<cfif structKeyExists(local.md,"functions")>
 													<cfset local.functions = local.md.functions />
 												<cfelse>
@@ -337,41 +364,40 @@
 											<cfset local.func = local.docData.functions[local.f] />
 											<cfset local.found[local.func.name] = true />
 											<!--- exclude methods that are not exposed as REST verbs --->
-											<cfif !listFindNoCase('get,post,put,delete,patch',local.func.name) AND !structKeyExists(local.func,'taffy_verb') AND !structKeyExists(local.func,'taffy:verb')>
-												<cfscript>continue;</cfscript><!--- stupid CF8 --->
-											</cfif>
- 											<div class="col-md-12"><strong>#local.func.name#</strong></div>
-											<cfif structKeyExists(local.func, "hint")>
-												<div class="col-md-12 doc">#local.func.hint#</div>
-											</cfif>
-											<cfloop from="1" to="#arrayLen(local.func.parameters)#" index="local.p">
-												<cfset local.param = local.func.parameters[local.p] />
-												<div class="row">
-													<div class="col-md-11 col-md-offset-1">
-															<cfif not structKeyExists(local.param, 'required') or not local.param.required>
-																optional
-															<cfelse>
-																required
-															</cfif>
-															<cfif structKeyExists(local.param, "type")>
-																#local.param.type#
-															</cfif>
-															<strong>#local.param.name#</strong>
-															<cfif structKeyExists(local.param, "default")>
-																<cfif local.param.default eq "">
-																	(default: "")
+											<cfif listFindNoCase('get,post,put,delete,patch',local.func.name) OR structKeyExists(local.func,'taffy_verb') OR structKeyExists(local.func,'taffy:verb')>
+	 											<div class="col-md-12"><strong>#local.func.name#</strong></div>
+												<cfif structKeyExists(local.func, "hint")>
+													<div class="col-md-12 doc">#local.func.hint#</div>
+												</cfif>
+												<cfloop from="1" to="#arrayLen(local.func.parameters)#" index="local.p">
+													<cfset local.param = local.func.parameters[local.p] />
+													<div class="row">
+														<div class="col-md-11 col-md-offset-1">
+																<cfif not structKeyExists(local.param, 'required') or not local.param.required>
+																	optional
 																<cfelse>
-																	(default: #local.param.default#)
+																	required
 																</cfif>
-															<cfelse>
-																<!--- no default value --->
+																<cfif structKeyExists(local.param, "type")>
+																	#local.param.type#
+																</cfif>
+																<strong>#local.param.name#</strong>
+																<cfif structKeyExists(local.param, "default")>
+																	<cfif local.param.default eq "">
+																		(default: "")
+																	<cfelse>
+																		(default: #local.param.default#)
+																	</cfif>
+																<cfelse>
+																	<!--- no default value --->
+																</cfif>
+															<cfif structKeyExists(local.param, "hint")>
+																<br/><span class="doc">#local.param.hint#</span>
 															</cfif>
-														<cfif structKeyExists(local.param, "hint")>
-															<br/><span class="doc">#local.param.hint#</span>
-														</cfif>
+														</div>
 													</div>
-												</div>
-											</cfloop>
+												</cfloop>
+											</cfif>
 										</cfloop>
 									</div><!-- /col-md-4 (docs) -->
 								</div>
@@ -456,13 +482,16 @@
 				var docs = $(this).closest('.docs');
 				var runner = $(this).closest('.resourceWrapper').find('.runner');
 				docs.hide();
-				runner.removeClass("col-md-8").addClass("col-md-12");
+				runner.removeClass("col-md-8").addClass("col-md-12").find('.showDocs').show();
 			});
 			$(".showDocs").on("click", function(){
 				var docs = $(this).closest('.resourceWrapper').find('.docs');
 				var runner = $(this).closest('.runner');
 				runner.removeClass("col-md-12").addClass("col-md-8");
 				docs.show();
+				$(this).hide();
+			}).each(function(){
+				$(this).click();
 			});
 		});
 		function submitRequest( verb, resource, headers, body, callback ){
